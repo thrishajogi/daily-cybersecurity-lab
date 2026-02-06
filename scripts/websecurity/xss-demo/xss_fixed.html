@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>XSS Fixed Demo</title>
+</head>
+<body>
+  <h2>XSS Protected Page</h2>
+
+  <input type="text" id="userInput" placeholder="Enter text">
+  <button onclick="displayInput()">Submit</button>
+
+  <p id="output"></p>
+
+  <script>
+    function displayInput() {
+      var input = document.getElementById("userInput").value;
+      document.getElementById("output").innerText = input;
+    }
+  </script>
+</body>
+</html>

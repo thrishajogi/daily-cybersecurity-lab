@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>XSS DEMO</h2>
+
+<input id="inputBox">
+<button onclick="run()">Submit</button>
+
+<p id="out"></p>
+
+<script>
+function run() {
+  document.getElementById("out").innerHTML =
+    document.getElementById("inputBox").value;
+}
+</script>
+
+</body>
+</html>
