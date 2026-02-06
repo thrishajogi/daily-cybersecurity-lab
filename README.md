@@ -10,7 +10,7 @@ This repository documents my daily learning and hands-on practice in cybersecuri
 
 ## Structure
 - notes/ → daily theory notes
-- scripts/ → python security scripts
+- scripts/ → the codes to learn cybersecurity everyday
 - screenshots/ → outputs & demos
 
 ## Disclaimer
