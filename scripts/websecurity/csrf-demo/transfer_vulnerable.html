@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>Bank Transfer (Vulnerable)</h2>
+
+<p>User is logged in (cookie assumed)</p>
+
+<form>
+  <input type="hidden" value="attacker" />
+  <input type="hidden" value="10000" />
+  <button onclick="transfer()">Transfer Money</button>
+</form>
+
+<p id="result"></p>
+
+<script>
+function transfer() {
+  document.getElementById("result").innerHTML =
+    "₹10,000 transferred ❌ (CSRF attack possible)";
+}
+</script>
+
+</body>
+</html>

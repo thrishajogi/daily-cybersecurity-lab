@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>Bank Transfer (Protected)</h2>
+
+<form>
+  <input type="hidden" value="secure123">
+  <button onclick="transfer()">Transfer Money</button>
+</form>
+
+<p id="result"></p>
+
+<script>
+function transfer() {
+  var token = "secure123";
+
+  if (token === "secure123") {
+    document.getElementById("result").innerText =
+      "Transfer allowed ✅ (CSRF prevented)";
+  } else {
+    document.getElementById("result").innerText =
+      "CSRF blocked ❌";
+  }
+}
+</script>
+
+</body>
+</html>
