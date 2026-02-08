@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SQL Injection Vulnerable Login</title>
+</head>
+<body>
+
+<h2>Login Page (Vulnerable)</h2>
+
+<input type="text" id="username" placeholder="Username"><br><br>
+<input type="password" id="password" placeholder="Password"><br><br>
+<button onclick="login()">Login</button>
+
+<p id="result"></p>
+
+<script>
+function login() {
+  var user = document.getElementById("username").value;
+  var pass = document.getElementById("password").value;
+
+  // Simulated vulnerable SQL query
+  var query = "SELECT * FROM users WHERE username = '" + user + "' AND password = '" + pass + "'";
+
+  if (query.includes("' OR '1'='1")) {
+    document.getElementById("result").innerHTML = "Login successful (SQL Injection) ❌";
+  } else {
+    document.getElementById("result").innerHTML = "Login failed";
+  }
+}
+</script>
+
+</body>
+</html>
