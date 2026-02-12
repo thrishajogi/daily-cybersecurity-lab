@@ -1,0 +1,5 @@
+{"type": "successful_login", "ip": "127.0.0.1", "timestamp": 1770868896.0087116}
+{"type": "failed_login", "ip": "127.0.0.1", "timestamp": 1770868897.5201366}
+{"type": "failed_login", "ip": "127.0.0.1", "timestamp": 1770868898.644829}
+{"type": "failed_login", "ip": "127.0.0.1", "timestamp": 1770868899.5393894}
+{"type": "brute_force_detected", "ip": "127.0.0.1", "timestamp": 1770868899.5393894}
