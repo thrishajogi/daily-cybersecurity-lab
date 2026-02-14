@@ -5,19 +5,20 @@ import hmac
 import base64
 import json
 import time
+import secrets
 
 app = Flask(__name__)
 CORS(app)
 
 # =========================
-# CONFIGURATION
+# CONFIG
 # =========================
-SECRET_KEY = b"super_secret_key_change_this"
-MAX_ATTEMPTS = 3
-LOCK_TIME = 30
+SECRET_KEY = b"ultra_secret_key_rotate_me"
+ACCESS_TOKEN_TTL = 30         # seconds
+REFRESH_TOKEN_TTL = 300       # seconds
 
 # =========================
-# SIMULATED DATABASE
+# DATABASE
 # =========================
 users_db = {
     "1": {
@@ -33,9 +34,10 @@ users_db = {
 }
 
 # =========================
-# RUNTIME STATE
+# SESSION STORE
 # =========================
-failed_attempts = {}
+refresh_store = {}  # refresh_token → {username, expiry}
+
 alerts = []
 
 # =========================
@@ -46,15 +48,8 @@ def log_event(event):
         f.write(json.dumps(event) + "\n")
 
 
-def generate_token(username, role):
-    payload = {
-        "user": username,
-        "role": role,
-        "timestamp": time.time()
-    }
-
+def sign_payload(payload):
     payload_str = json.dumps(payload)
-
     signature = hmac.new(
         SECRET_KEY,
         payload_str.encode(),
@@ -62,11 +57,10 @@ def generate_token(username, role):
     ).hexdigest()
 
     token_data = f"{payload_str}.{signature}"
-
     return base64.b64encode(token_data.encode()).decode()
 
 
-def verify_token(token):
+def verify_signed_token(token):
     try:
         decoded = base64.b64decode(token).decode()
         payload_str, received_signature = decoded.rsplit(".", 1)
@@ -77,151 +71,141 @@ def verify_token(token):
             hashlib.sha256
         ).hexdigest()
 
-        if hmac.compare_digest(received_signature, expected_signature):
-            return True, json.loads(payload_str)
-        else:
+        if not hmac.compare_digest(received_signature, expected_signature):
             return False, None
+
+        payload = json.loads(payload_str)
+
+        if payload["exp"] < time.time():
+            return False, "expired"
+
+        return True, payload
+
     except Exception:
         return False, None
 
 
 # =========================
-# AUTHENTICATION
+# LOGIN (ISSUES ACCESS + REFRESH)
 # =========================
 @app.route("/login", methods=["POST"])
 def login():
-    global failed_attempts
-
-    ip = request.remote_addr
     data = request.json
     username = data.get("username")
     password = data.get("password")
 
-    current_time = time.time()
-
-    if ip not in failed_attempts:
-        failed_attempts[ip] = {"count": 0, "lock_until": 0}
-
-    # IP lock check
-    if current_time < failed_attempts[ip]["lock_until"]:
-        return jsonify({"message": "IP temporarily blocked 🔒"}), 403
-
     for user_id, user_data in users_db.items():
         if user_data["username"] == username:
             hashed_input = hashlib.sha256(password.encode()).hexdigest()
-
             if hashed_input == user_data["password_hash"]:
-                failed_attempts[ip]["count"] = 0
 
-                token = generate_token(username, user_data["role"])
+                now = time.time()
+
+                access_payload = {
+                    "user": username,
+                    "role": user_data["role"],
+                    "exp": now + ACCESS_TOKEN_TTL
+                }
+
+                access_token = sign_payload(access_payload)
+
+                refresh_token = secrets.token_hex(32)
+
+                refresh_store[refresh_token] = {
+                    "username": username,
+                    "expiry": now + REFRESH_TOKEN_TTL
+                }
 
                 log_event({
-                    "type": "successful_login",
-                    "ip": ip,
+                    "type": "login",
                     "user": username,
-                    "timestamp": current_time
+                    "timestamp": now
                 })
 
                 return jsonify({
-                    "message": "Login successful ✅",
-                    "token": token
+                    "access_token": access_token,
+                    "refresh_token": refresh_token
                 })
 
-    # Failed login
-    failed_attempts[ip]["count"] += 1
+    return jsonify({"message": "Invalid credentials"}), 401
 
-    log_event({
-        "type": "failed_login",
-        "ip": ip,
-        "attempted_user": username,
-        "timestamp": current_time
+
+# =========================
+# REFRESH TOKEN ROTATION
+# =========================
+@app.route("/refresh", methods=["POST"])
+def refresh():
+    data = request.json
+    old_refresh = data.get("refresh_token")
+
+    entry = refresh_store.get(old_refresh)
+
+    if not entry:
+        alerts.append({
+            "type": "refresh_replay_detected",
+            "timestamp": time.time()
+        })
+        return jsonify({"message": "Invalid refresh token"}), 403
+
+    if entry["expiry"] < time.time():
+        del refresh_store[old_refresh]
+        return jsonify({"message": "Refresh expired"}), 403
+
+    # ROTATION (CRITICAL)
+    username = entry["username"]
+    del refresh_store[old_refresh]
+
+    new_refresh = secrets.token_hex(32)
+
+    refresh_store[new_refresh] = {
+        "username": username,
+        "expiry": time.time() + REFRESH_TOKEN_TTL
+    }
+
+    new_access_payload = {
+        "user": username,
+        "role": users_db["1"]["role"] if username == "admin" else "user",
+        "exp": time.time() + ACCESS_TOKEN_TTL
+    }
+
+    new_access = sign_payload(new_access_payload)
+
+    return jsonify({
+        "access_token": new_access,
+        "refresh_token": new_refresh
     })
 
-    if failed_attempts[ip]["count"] >= MAX_ATTEMPTS:
-        failed_attempts[ip]["lock_until"] = current_time + LOCK_TIME
-        failed_attempts[ip]["count"] = 0
-
-        alert = {
-            "type": "brute_force_detected",
-            "ip": ip,
-            "timestamp": current_time
-        }
-
-        alerts.append(alert)
-        log_event(alert)
-
-        return jsonify({"message": "Too many attempts. IP blocked 🔒"}), 403
-
-    return jsonify({"message": "Invalid credentials ❌"}), 401
-
 
 # =========================
-# TOKEN VERIFICATION
+# PROTECTED PROFILE
 # =========================
-@app.route("/verify", methods=["POST"])
-def verify():
+@app.route("/profile", methods=["POST"])
+def profile():
     data = request.json
-    token = data.get("token")
+    token = data.get("access_token")
 
-    valid, payload = verify_token(token)
+    valid, payload = verify_signed_token(token)
 
-    if valid:
+    if valid is True:
         return jsonify({
-            "message": "Token valid ✅",
             "user": payload["user"],
             "role": payload["role"]
         })
+
+    elif payload == "expired":
+        return jsonify({"message": "Access token expired"}), 401
+
     else:
-        return jsonify({
-            "message": "Token tampered ❌"
-        }), 403
-
-
-# =========================
-# SECURE PROFILE (RBAC FIXED)
-# =========================
-@app.route("/profile/<user_id>", methods=["POST"])
-def secure_profile(user_id):
-    data = request.json
-    token = data.get("token")
-
-    valid, payload = verify_token(token)
-
-    if not valid:
         return jsonify({"message": "Invalid token"}), 403
 
-    target_user = users_db.get(user_id)
-
-    if not target_user:
-        return jsonify({"message": "User not found"}), 404
-
-    # Authorization logic
-    if payload["role"] == "admin":
-        return jsonify(target_user)
-
-    if payload["user"] != target_user["username"]:
-        log_event({
-            "type": "unauthorized_access_attempt",
-            "attacker": payload["user"],
-            "target_user_id": user_id,
-            "timestamp": time.time()
-        })
-
-        return jsonify({"message": "Access denied 🚫"}), 403
-
-    return jsonify(target_user)
-
 
 # =========================
-# ALERTS MONITORING
+# ALERT VIEW
 # =========================
 @app.route("/alerts", methods=["GET"])
 def view_alerts():
     return jsonify(alerts)
 
 
-# =========================
-# SERVER START
-# =========================
 if __name__ == "__main__":
     app.run(debug=True)
