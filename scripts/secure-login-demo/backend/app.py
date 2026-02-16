@@ -12,13 +12,12 @@ CORS(app)
 # =========================
 # CONFIG
 # =========================
-SECRET_KEY = b"capstone_secret_key"
-TOKEN_TTL = 120
+SECRET_KEY = b"phase2_ultra_secure_key"
+TOKEN_TTL = 120  # seconds
 
 # =========================
-# DATABASE SIMULATION
+# DATABASE (Simulated)
 # =========================
-
 users = {
     "admin": {
         "password_hash": hashlib.sha256("admin@123".encode()).hexdigest(),
@@ -38,7 +37,7 @@ documents = {
 alerts = []
 
 # =========================
-# TOKEN HELPERS
+# UTILITIES
 # =========================
 
 def sign_token(payload):
@@ -79,7 +78,16 @@ def verify_token(token):
 
 
 # =========================
-# AUTH
+# ROOT ROUTE
+# =========================
+
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"message": "Phase 2 Purple Capstone API Running 🚀"})
+
+
+# =========================
+# AUTHENTICATION
 # =========================
 
 @app.route("/login", methods=["POST"])
@@ -98,7 +106,6 @@ def login():
 
     payload = {
         "user": username,
-        "role": users[username]["role"],
         "exp": time.time() + TOKEN_TTL
     }
 
@@ -108,7 +115,7 @@ def login():
 
 
 # =========================
-# LIST DOCUMENTS
+# LIST DOCUMENTS (RBAC SAFE)
 # =========================
 
 @app.route("/documents", methods=["POST"])
@@ -121,24 +128,23 @@ def list_documents():
     if valid is not True:
         return jsonify({"message": "Invalid or expired token"}), 403
 
-    user = payload["user"]
-    role = payload["role"]
+    username = payload["user"]
+    current_role = users[username]["role"]  # 🔐 LIVE ROLE CHECK
 
-    if role == "admin":
+    if current_role == "admin":
         return jsonify(documents)
 
-    # Only return user's own docs
     user_docs = {
         doc_id: doc
         for doc_id, doc in documents.items()
-        if doc["owner"] == user
+        if doc["owner"] == username
     }
 
     return jsonify(user_docs)
 
 
 # =========================
-# VIEW SINGLE DOCUMENT
+# VIEW SINGLE DOCUMENT (SECURE)
 # =========================
 
 @app.route("/document/<doc_id>", methods=["POST"])
@@ -151,27 +157,51 @@ def view_document(doc_id):
     if valid is not True:
         return jsonify({"message": "Invalid or expired token"}), 403
 
+    username = payload["user"]
+
     if doc_id not in documents:
         return jsonify({"message": "Not found"}), 404
 
     doc = documents[doc_id]
 
-    # Admin override
-    if payload["role"] == "admin":
+    current_role = users[username]["role"]  # 🔐 LIVE ROLE CHECK
+
+    # Admin override based on LIVE ROLE
+    if current_role == "admin":
         return jsonify(doc)
 
-    # Ownership check
-    if doc["owner"] != payload["user"]:
+    # Ownership enforcement
+    if doc["owner"] != username:
         alerts.append({
             "type": "horizontal_privilege_escalation_attempt",
-            "attacker": payload["user"],
+            "attacker": username,
             "target_doc": doc_id,
             "timestamp": time.time()
         })
 
-        return jsonify({"message": "Access denied"}), 403
+        return jsonify({"message": "Access denied 🚫"}), 403
 
     return jsonify(doc)
+
+
+# =========================
+# CHANGE ROLE (SIMULATE PRIVILEGE DROP)
+# =========================
+
+@app.route("/change_role", methods=["POST"])
+def change_role():
+    data = request.json
+    username = data.get("username")
+    new_role = data.get("role")
+
+    if username not in users:
+        return jsonify({"message": "User not found"}), 404
+
+    users[username]["role"] = new_role
+
+    return jsonify({
+        "message": f"{username} role updated to {new_role}"
+    })
 
 
 # =========================
@@ -182,6 +212,10 @@ def view_document(doc_id):
 def get_alerts():
     return jsonify(alerts)
 
+
+# =========================
+# SERVER START
+# =========================
 
 if __name__ == "__main__":
     app.run(debug=True)
